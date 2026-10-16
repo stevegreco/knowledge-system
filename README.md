@@ -1,6 +1,6 @@
 # Enterprise RAG Knowledge System
 
-A small knowledge base that answers questions over a document corpus with cited sources. It uses the same patterns enterprise RAG systems rely on. This is mainly a learning project, and it stays small enough for one person to build in phases.
+A small knowledge base that answers questions over a document corpus with cited sources. It uses the same patterns enterprise RAG systems rely on. AI agents such as Claude Code and Cursor can query it through an MCP server. This is mainly a learning project, and it stays small enough for one person to build in phases.
 
 ## Learning goals
 
@@ -9,6 +9,7 @@ By the end, I should be able to explain and demonstrate:
 - How documents become searchable vectors (parsing, chunking, embedding, storage)
 - How retrieval quality is measured and improved with an evaluation set
 - Why hybrid search and reranking beat pure vector search in practice
+- How to expose a knowledge base to AI agents as MCP tools
 - How permission-aware retrieval keeps restricted content out of answers
 - How to operate the system: incremental re-ingestion, logging, and debugging bad answers
 
@@ -21,6 +22,7 @@ The system ingests a public corpus that resembles enterprise content and serves 
 - One public corpus with mixed formats (Markdown, HTML, PDF). Examples: an open-source project's docs and issues, a public company handbook, or a few companies' SEC filings
 - Incremental ingestion with metadata on every chunk
 - A query API that returns answers with citations to source chunks
+- An MCP server so agents such as Claude Code and Cursor can search the knowledge base and get cited answers
 - An evaluation set and scoring script
 - Hybrid search, reranking, permission filtering, and query logging in later phases
 
@@ -34,13 +36,15 @@ The system ingests a public corpus that resembles enterprise content and serves 
 
 ## Architecture
 
-Two pipelines share one database. Ingestion writes chunks into Postgres, and the query path reads them back to answer questions.
+Two pipelines share one database. Ingestion writes chunks into Postgres, and the query path reads them back to answer questions. People reach the query API directly; AI agents reach it through the MCP server.
 
 ```mermaid
 flowchart LR
     SRC[Source corpus] --> ING[Ingest worker]
     ING -->|chunks + vectors| DB[(Postgres + pgvector)]
     USER[User / CLI] -->|question| API[Query API]
+    AGENT[AI agent: Claude Code, Cursor] -->|tool call| MCP[MCP server]
+    MCP -->|search / query| API
     API -->|retrieve top-k| DB
     API -->|prompt with chunks| LLM[LLM]
     LLM -->|answer| API
@@ -52,7 +56,7 @@ The eval harness scores the API's answers on every change.
 
 ## Components
 
-Four components, each testable on its own.
+Five components, each testable on its own.
 
 ### 1. Ingest worker
 
@@ -80,6 +84,10 @@ FastAPI. Embeds the question, retrieves the top-k chunks, builds a prompt that r
 
 A script. Runs a set of golden questions through the API and reports retrieval hit rate and answer correctness, so every change can be measured against a baseline.
 
+### 5. MCP server
+
+A thin layer over the query API that exposes it as MCP tools: one that returns cited chunks for the calling agent to reason over, and one that returns a full cited answer. Because it calls the API rather than the database, agents get the same retrieval, permission filtering, and logging as everyone else.
+
 ## Data model
 
 Three core tables. Later phases add columns or JSONB keys rather than new structure.
@@ -90,17 +98,18 @@ Three core tables. Later phases add columns or JSONB keys rather than new struct
 | `chunks` | id, document_id, chunk_index, section_path, text, embedding (vector), embedding_model, metadata (JSONB) | The retrievable unit; metadata later holds access groups |
 | `ingest_runs` | id, started_at, finished_at, seen, skipped, updated, deleted, failed, errors (JSONB) | Audit trail for each ingestion run |
 
-v3 adds a `query_log` table (question, user, retrieved chunk ids, latency, token cost, answer).
+v3 adds a `query_log` table (question, user, caller, retrieved chunk ids, latency, token cost, answer).
 
 ## Roadmap
 
-There are three phases, and each ends with a measurable gate on the evaluation set. A phase doesn't start until the previous gate is met. The phases are broken into learning-sized issues in [docs/learning-path.md](docs/learning-path.md).
+There are four phases, and each ends with a measurable gate on the evaluation set. A phase doesn't start until the previous gate is met. The phases are broken into learning-sized issues in [docs/learning-path.md](docs/learning-path.md).
 
 | Phase | Deliverables | Exit gate |
 | --- | --- | --- |
 | v1: Baseline RAG | Docker Compose with Postgres and pgvector; schema; ingest CLI with hashing, structure-aware chunking, and pruning; `/query` endpoint with cited answers; 30 to 50 golden questions and a scoring script | Full corpus ingests and re-runs skip unchanged docs; baseline eval scores recorded |
+| Agent access | `/search` endpoint; MCP server with search and query tools; setup for Claude Code and Cursor | Claude Code and Cursor each answer golden questions through the MCP tools, with citations |
 | v2: Retrieval quality | Postgres full-text search; hybrid retrieval with reciprocal rank fusion; a reranker; side-by-side eval report | Hybrid plus rerank beats the v1 baseline on retrieval hit rate |
-| v3: Enterprise controls | Access groups on chunks; query-time permission filtering; test users at three permission levels; query logging with latency and cost | Zero restricted chunks returned to unauthorized test users; every query traceable in logs |
+| v3: Enterprise controls | Access groups on chunks; query-time permission filtering; test users at three permission levels, including for MCP requests; query logging with latency and cost | Zero restricted chunks returned to unauthorized test users; every query traceable in logs |
 
 ## Evaluation
 
@@ -127,6 +136,7 @@ The stack uses tools common in enterprise deployments and keeps the number of mo
 | Language | Python | Dominant ecosystem for RAG and ML tooling |
 | Vector store | Postgres with pgvector | Many companies already run Postgres; vectors, metadata, and full-text search in one place |
 | API | FastAPI | Lightweight, typed, easy to test |
+| Agent access | MCP Python SDK | MCP is the standard tool protocol supported by Claude, Cursor, and other agents |
 | Embeddings | Local sentence-transformers model to start | Free and fast to iterate on; swap for a hosted model later to compare |
 | Parsing | Markdown natively; pymupdf or trafilatura for PDF/HTML | Parsing quality strongly affects retrieval |
 | LLM | Any hosted LLM API | Only used for the final answer step |

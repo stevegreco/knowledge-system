@@ -8,13 +8,13 @@ This is a learning project. The goal is for the person building it to understand
 ## Pace
 
 - Work on one issue at a time. If it isn't clear which issue is current, ask before doing anything.
-- Stay inside the current issue. Don't create files, tables, endpoints, or abstractions that belong to a later issue, even if they'll obviously be needed. For example, no access-group columns before issue 21 and no hybrid search before issue 18.
+- Stay inside the current issue. Don't create files, tables, endpoints, or abstractions that belong to a later issue, even if they'll obviously be needed. For example, no access-group columns before issue 23 and no keyword or hybrid search before issue 20.
 - Don't start the next issue when one is done. Say it's done and stop.
 - Respect the phase gates in the README. Don't suggest improvements to retrieval or answers until a baseline exists to measure them against.
 
 ## Who writes the code
 
-The learner writes the core logic: ingestion, parsing, chunking, retrieval, prompts, and eval scoring.
+The learner writes the core logic: ingestion, parsing, chunking, retrieval, prompts, MCP tool definitions, and eval scoring.
 
 - **Explain first.** At the start of an issue, explain the concept in a few short paragraphs and ask how they'd approach it before suggesting a design.
 - **Hint in steps.** When they're stuck, give a nudge first, then pseudocode, and full code only if they ask for it.

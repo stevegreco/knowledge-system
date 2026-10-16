@@ -27,14 +27,16 @@ Each issue maps to one GitHub issue. Phase gates come from the [README roadmap](
 | 14 | Generate a cited answer | v1: Baseline RAG |
 | 15 | Query API | v1: Baseline RAG |
 | 16 | Measure answers and record the v1 baseline | v1: Baseline RAG (gate) |
-| 17 | Failure analysis of v1 misses | v2: Retrieval quality |
-| 18 | Keyword search with Postgres full-text | v2: Retrieval quality |
-| 19 | Hybrid retrieval with reciprocal rank fusion | v2: Retrieval quality |
-| 20 | Reranking and the v2 report | v2: Retrieval quality (gate) |
-| 21 | Access groups and test users | v3: Enterprise controls |
-| 22 | Permission-filtered retrieval | v3: Enterprise controls |
-| 23 | Query logging and tracing a bad answer | v3: Enterprise controls (gate) |
-| 24 | Stretch experiments | Optional |
+| 17 | MCP server with search and query tools | Agent access |
+| 18 | Use it from Claude Code and Cursor | Agent access (gate) |
+| 19 | Failure analysis of v1 misses | v2: Retrieval quality |
+| 20 | Keyword search with Postgres full-text | v2: Retrieval quality |
+| 21 | Hybrid retrieval with reciprocal rank fusion | v2: Retrieval quality |
+| 22 | Reranking and the v2 report | v2: Retrieval quality (gate) |
+| 23 | Access groups and test users | v3: Enterprise controls |
+| 24 | Permission-filtered retrieval | v3: Enterprise controls |
+| 25 | Query logging and tracing a bad answer | v3: Enterprise controls (gate) |
+| 26 | Stretch experiments | Optional |
 
 ---
 
@@ -261,11 +263,48 @@ The simplest complete pipeline: ingest, retrieve, answer, measure. Resist improv
 
 ---
 
+## Phase: Agent access
+
+Make the knowledge base usable from AI agents before improving it, so you can try it on real questions while you work.
+
+### 17 · MCP server with search and query tools
+
+**Concept:** MCP (Model Context Protocol) is a standard way to give an AI agent tools. The agent reads each tool's name, description, and input schema, then decides when to call it, so those descriptions work like a prompt.
+
+**Build:**
+- A `POST /search` endpoint that returns the top chunks with citations and no LLM call
+- An MCP server (MCP Python SDK, stdio transport) with two tools that call the API: `search_knowledge` returns cited chunks, and `ask_knowledge` returns a full cited answer
+- Try both tools in the MCP Inspector
+
+**Done when:** both tools return cited results in the Inspector, and each tool description says when an agent should pick it over the other.
+
+**Check your understanding:**
+- When would an agent be better off with raw chunks than with a finished answer?
+- Why does the MCP server call the API instead of querying Postgres directly?
+- What is the difference between the stdio and HTTP transports?
+
+### 18 · Use it from Claude Code and Cursor
+
+**Concept:** Each agent registers MCP servers in its own config file, but the server stays the same. How an agent uses your tools depends on their descriptions and on what it returns.
+
+**Build:**
+- Register the server for this project in Claude Code (`.mcp.json`) and Cursor (`.cursor/mcp.json`), with setup steps in the README
+- Ask five golden questions in each agent and note which tool it chose and whether the citations survived into its reply
+- Adjust tool descriptions if an agent picks the wrong tool, and note what changed
+
+**Done when (agent access gate):** Claude Code and Cursor each answer golden questions through the MCP tools, with citations.
+
+**Check your understanding:**
+- Did the agents prefer `search_knowledge` or `ask_knowledge`? Why?
+- What would an agent need from the server to cite a source back to you?
+
+---
+
 ## Phase v2: Retrieval quality
 
 Every change in this phase is judged against the v1 baseline.
 
-### 17 · Failure analysis of v1 misses
+### 19 · Failure analysis of v1 misses
 
 **Concept:** Debugging bad answers. Group failures by cause before choosing a fix.
 
@@ -277,7 +316,7 @@ Every change in this phase is judged against the v1 baseline.
 - Which failure category do you expect keyword search to fix?
 - Which failures will no retrieval change fix?
 
-### 18 · Keyword search with Postgres full-text
+### 20 · Keyword search with Postgres full-text
 
 **Concept:** Lexical search (BM25-style ranking) finds exact terms, names, and IDs that embeddings blur.
 
@@ -289,7 +328,7 @@ Every change in this phase is judged against the v1 baseline.
 - What do stemming and stop words do to a query?
 - Why might keyword search beat vectors on some of your questions?
 
-### 19 · Hybrid retrieval with reciprocal rank fusion
+### 21 · Hybrid retrieval with reciprocal rank fusion
 
 **Concept:** Combine rankings instead of raw scores, because vector distances and text-rank scores aren't on the same scale.
 
@@ -301,7 +340,7 @@ Every change in this phase is judged against the v1 baseline.
 - Why fuse ranks rather than normalize scores?
 - What does the `k` constant in RRF change?
 
-### 20 · Reranking and the v2 report
+### 22 · Reranking and the v2 report
 
 **Concept:** A cross-encoder reads the question and each chunk together. It is more accurate than embeddings but too slow to run on the whole corpus, so it reorders a short candidate list.
 
@@ -317,7 +356,7 @@ Every change in this phase is judged against the v1 baseline.
 
 ## Phase v3: Enterprise controls
 
-### 21 · Access groups and test users
+### 23 · Access groups and test users
 
 **Concept:** Permissions belong on the data at ingestion time, not bolted on at answer time.
 
@@ -329,23 +368,23 @@ Every change in this phase is judged against the v1 baseline.
 - Why copy groups onto chunks instead of joining to documents at query time?
 - What happens to permissions when a document's access changes?
 
-### 22 · Permission-filtered retrieval
+### 24 · Permission-filtered retrieval
 
 **Concept:** Filter before ranking, not after. Post-filtering can return too few results or leak restricted content through the answer.
 
-**Build:** pass the user into `/query`, filter chunks by access group inside the SQL for both vector and keyword search, and add a leakage check to the eval.
+**Build:** pass the user into `/query` and `/search`, filter chunks by access group inside the SQL for both vector and keyword search, and add a leakage check to the eval. Configure the MCP server to send a test user with each request.
 
-**Done when:** zero restricted chunks are returned to unauthorized test users across the whole eval set.
+**Done when:** zero restricted chunks are returned to unauthorized test users across the whole eval set, including through the MCP tools.
 
 **Check your understanding:**
 - What goes wrong if you retrieve the top 5 and then remove restricted chunks?
 - How does filtering interact with the HNSW index?
 
-### 23 · Query logging and tracing a bad answer
+### 25 · Query logging and tracing a bad answer
 
 **Concept:** Observability: every answer should be traceable to the chunks, user, latency, and cost that produced it.
 
-**Build:** a `query_log` table, written on every request, with question, user, retrieved chunk IDs, latency, token cost, and answer. Then pick one bad answer and trace it end to end using only the log.
+**Build:** a `query_log` table, written on every request, with question, user, caller (API or MCP), retrieved chunk IDs, latency, token cost, and answer. Then pick one bad answer and trace it end to end using only the log.
 
 **Done when (v3 gate):** every query is in the log, and you've written a short trace of one bad answer.
 
@@ -355,7 +394,7 @@ Every change in this phase is judged against the v1 baseline.
 
 ---
 
-## 24 · Stretch experiments (optional)
+## 26 · Stretch experiments (optional)
 
 Pick any, one at a time, each measured against the latest eval:
 
