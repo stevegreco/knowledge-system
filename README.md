@@ -94,7 +94,7 @@ v3 adds a `query_log` table (question, user, retrieved chunk ids, latency, token
 
 ## Roadmap
 
-There are three phases, and each ends with a measurable gate on the evaluation set. A phase doesn't start until the previous gate is met.
+There are three phases, and each ends with a measurable gate on the evaluation set. A phase doesn't start until the previous gate is met. The phases are broken into learning-sized issues in [docs/learning-path.md](docs/learning-path.md).
 
 | Phase | Deliverables | Exit gate |
 | --- | --- | --- |

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "learning-stack",
+  "version": "0.1.0",
+  "description": "Skills for learning by building: set up learning-paced repos and get beginner-friendly explanations of concepts as you work.",
+  "author": {
+    "name": "Steve Greco",
+    "email": "steveox152@gmail.com"
+  },
+  "skills": [
+    "./skills/"
+  ]
+}
